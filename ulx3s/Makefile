@@ -1,4 +1,4 @@
-VERILOG = ../src/top.v ../src/uart/acia.v ../src/keyboard/ps2.v \
+VERILOG = ../src/top.v ../src/uart/acia.v ../src/keyboard/ps2.v ../src/keyboard/hid.v \
           ../src/memory/dpram.v ../src/memory/dprom.v ../src/memory/rom.v \
           ../src/memory/ram.v ../src/memory/sdram.v \
 	  ../src/Z80/tv80_core.v ../src/Z80/tv80n.v ../src/Z80/tv80_mcode.v \
