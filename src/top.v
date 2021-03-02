@@ -55,7 +55,7 @@ module top #(
   output        oled_dc,
   output        oled_resn,
   // Leds
-  output [7:0]  led
+  output reg [7:0]  led
 );
 
   // ===============================================================
@@ -88,6 +88,9 @@ module top #(
 
   wire          ga_cs;
   wire          rom_bank_cs;
+  wire          ppi_a_cs;
+  wire          ppi_b_cs;
+  wire          ppi_c_cs;
 
   // Miscellaneous signals
   wire [7:0]    acia_dout;
@@ -106,6 +109,9 @@ module top #(
   reg [2:0]     ram_bank;
   reg [2:0]     ram_config;
   reg [3:0]     rom_bank;
+  wire [7:0]  ram_out;
+  wire [7:0]  dpram_out;
+  wire [7:0]  rom_out;
 
   // ===============================================================
   // System Clock generation
@@ -166,6 +172,8 @@ module top #(
   assign ga_cs = cpu_address[15:14] == 2'b01;
   assign rom_bank_cs = cpu_address[13] == 1'b0;
 
+  assign ppi_b_cs = cpu_address[15:8] == 8'hf5;
+
   // ===============================================================
   // Memory decoding
   // ===============================================================
@@ -175,9 +183,11 @@ module top #(
       cpu_data_in = ram_out;
       case (cpu_address[15:14])
         0: if (!lo_rom_disable) cpu_data_in = rom_out;
-        3: if (!hi_rom_disable) cpu_data_in = rom_out;
+        3: if (!hi_rom_disable) cpu_data_in = rom_out; else cpu_data_in = dpram_out;
       endcase
-    end 
+    end else if (n_iord == 1'b0) begin
+      if (ppi_b_cs) cpu_data_in <= 8'h1e; // Amstrad branding
+    end
   end
 
   // ===============================================================
@@ -262,8 +272,6 @@ module top #(
   wire        spi_ram_wr, spi_ram_rd;
   wire [31:0] spi_ram_addr;
   wire [7:0]  spi_ram_di;
-  wire [7:0]  ram_out;
-  wire [7:0]  rom_out;
   wire [7:0]  spi_ram_do = ram_out;
   wire        irq;
 
@@ -319,11 +327,11 @@ module top #(
       ) vram (
         .clk_a(clk_cpu),
         .we_a(n_memwr == 1'b0 && cpu_address[15:14] == 3),
-        .addr_a(cpu_address - 16'hc000),
+        .addr_a(cpu_address[13:0]),
         .din_a(cpu_data_out),
-        .dout_a(ram_out),
+        .dout_a(dpram_out),
         .clk_b(clk_vga),
-        .addr_b({2'b00, vga_addr}),
+        .addr_b(vga_addr),
         .dout_b(vid_out)
       );
 
@@ -399,6 +407,8 @@ module top #(
     end
   endgenerate
 
+  wire [3:0] col_ind;
+
   video vga (
     .clk(clk_vga),
     .vga_r(red),
@@ -411,9 +421,8 @@ module top #(
     .vga_data(vid_out),
     .mode(mode),
     .border_color(border_color),
-    .colors({colors[15], colors[14], colors[13], colors[12], colors[11],
-             colors[10], colors[9] , colors[8],  colors[7],  colors[6],
-             colors[5] , colors[4],  colors[3],  colors[2],  colors[1], colors[0]}),
+    .pen(col_ind),
+    .color(colors[col_ind]),
     .n_int(n_int)
   );
 
@@ -608,6 +617,7 @@ module top #(
   // ===============================================================
   // Leds
   // ===============================================================
-  assign led = {border_color, mode};
+  //assign led = {border_color, mode};
+  always @(posedge clk_cpu) if (vid_out != 0 && led == 0) led <= vid_out;
   
 endmodule

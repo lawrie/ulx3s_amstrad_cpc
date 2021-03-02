@@ -12,8 +12,9 @@ module video (
   output [13:0] vga_addr,
   input [1:0]   mode,
   input [4:0]   border_color,
-  input [79:0]  colors,
-  output        n_int
+  input  [4:0]  color,
+  output [3:0]  pen,
+  output        n_int,
 );
 
   parameter HA = 640;
@@ -24,7 +25,7 @@ module video (
   parameter HB = 0;
   parameter HB2 = HB/2-8; // NOTE pixel coarse H-adjust
   parameter HDELAY = 3; // NOTE pixel fine H-adjust
-  parameter HB_ADJ = 4; // NOTE border H-adjust
+  parameter HB_ADJ = 0; // NOTE border H-adjust
 
   parameter VA = 480;
   parameter VS  = 2;
@@ -42,33 +43,33 @@ module video (
   reg [23:0] palette [0:26];
 
   initial begin
-    palette[0]  = 24'h000000;
-    palette[1]  = 24'h000080;
-    palette[2]  = 24'h0000ff;
-    palette[3]  = 24'h800000;
-    palette[4]  = 24'h800080;
-    palette[5]  = 24'h8000ff;
-    palette[6]  = 24'hff0000;
-    palette[7]  = 24'hff0080;
-    palette[8]  = 24'hff00ff;
-    palette[9]  = 24'h008000;
-    palette[10] = 24'h008080;
-    palette[11] = 24'h0080ff;
-    palette[12] = 24'h808000;
-    palette[13] = 24'h808080;
-    palette[14] = 24'h8080ff;
-    palette[15] = 24'hff8000;
-    palette[16] = 24'hff8080;
-    palette[17] = 24'hff80ff;
-    palette[18] = 24'h000000;
-    palette[19] = 24'h00ff00;
-    palette[20] = 24'h00ffff;
-    palette[21] = 24'h000000;
-    palette[22] = 24'h80ff00;
-    palette[23] = 24'h80ffff;
-    palette[24] = 24'hffff00;
-    palette[25] = 24'hffff80;
-    palette[26] = 24'hffffff;
+    palette[0]  = 24'h808080;
+    palette[1]  = 24'h808080;
+    palette[2]  = 24'h00FF80;
+    palette[3]  = 24'hffff80;
+    palette[4]  = 24'h000080;
+    palette[5]  = 24'hff0080;
+    palette[6]  = 24'h008080;
+    palette[7]  = 24'hff8080;
+    palette[8]  = 24'hff0080;
+    palette[9]  = 24'hffff80;
+    palette[10] = 24'hffff00;
+    palette[11] = 24'hffffff;
+    palette[12] = 24'hff0000;
+    palette[13] = 24'hff00ff;
+    palette[14] = 24'hff8000;
+    palette[15] = 24'hff8088;
+    palette[16] = 24'h000080;
+    palette[17] = 24'h00ff80;
+    palette[18] = 24'h00ff00;
+    palette[19] = 24'h00ffff;
+    palette[20] = 24'h000000;
+    palette[21] = 24'h0000ff;
+    palette[22] = 24'h008000;
+    palette[23] = 24'h0080ff;
+    palette[24] = 24'h800080;
+    palette[25] = 24'h80ff00;
+    palette[26] = 24'h80ff00;
   end
 
   assign n_int = !INT;
@@ -95,6 +96,7 @@ module video (
   wire [7:0] y = vc[9:1] - VB2;
 
   wire [9:0] x8 = x + 8;
+  wire [7:0] y1 = y + 1;
 
   wire h_border = (hc < (HB + HB_ADJ) || hc >= (HA - HB + HB_ADJ));
   wire v_border = (vc < VB || vc >= VA - VB);
@@ -104,7 +106,9 @@ module video (
 
   // Read video memory
   always @(posedge clk) begin
-    vga_addr <= {y[2:0], 11'b0} + (y[7:3] * 80) + x8[9:3];
+    if (x < HA - 8) vga_addr <= {y[2:0], 11'b0} + (y[7:3] * 80) + x8[9:3];
+    if (vc[0] == 1 && x >= HA - 8 && x < HA) vga_addr <= {y1[2:0], 11'b0} + (y1[7:3] * 80); // First byte of next line
+    if (vc[0] == 0 && x >= HA - 8 && x < HA) vga_addr <= {y[2:0], 11'b0} + (y[7:3] * 80);
     if (x[2:0] == 7) pixels <= vga_data;
     else begin
       if (mode == 0 && x[2:0] == 3) pixels <= {pixels[6:0], 1'b0};
@@ -113,18 +117,15 @@ module video (
     end
   end
 
-  reg [3:0] pix;
-
   always @* begin
     case (mode) 
-      0: pix = {pixels[7], pixels[3], pixels[5], pixels[1]};
-      1: pix = {pixels[7], pixels[3]};
-      2: pix = pixels[7];
-      3: pix = {pixels[7], pixels[3]};
+      0: pen = {pixels[1], pixels[5], pixels[3], pixels[7]};
+      1: pen = {2'b0, pixels[3], pixels[7]};
+      2: pen = {3'b0, pixels[7]};
+      3: pen = {2'b0, pixels[3], pixels[7]};
     endcase
   end
 
-  wire [4:0] color = colors[(pix * 5) + 4 -: 4];
   wire [4:0] col = border ? border_color : color;
 
   wire [7:0] red = palette[col][23:16];
