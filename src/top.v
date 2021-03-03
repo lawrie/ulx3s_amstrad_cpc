@@ -4,7 +4,7 @@ module top #(
   parameter c_acia_serial  = 1,  // 0: disabled, 1: ACIA serial
   parameter c_esp32_serial = 0,  // 0: disabled, 1: ESP32 serial (micropython console)
   parameter c_sdram        = 0,  // SDRAM or BRAM 
-  parameter c_keyboard     = 0,  // Include keyboard support
+  parameter c_keyboard     = 1,  // Include keyboard support
   parameter c_diag         = 1,  // 0: No led diagnostcs, 1: led diagnostics 
   parameter c_speed        = 1,  // CPU speed = 25 / 2 ** (c_speed + 1) MHz
   parameter c_reset        = 15, // Bits (minus 1) in power-up reset counter
@@ -55,7 +55,7 @@ module top #(
   output        oled_dc,
   output        oled_resn,
   // Leds
-  output reg [7:0]  led
+  output [7:0]  led
 );
 
   // ===============================================================
@@ -91,6 +91,12 @@ module top #(
   wire          ppi_a_cs;
   wire          ppi_b_cs;
   wire          ppi_c_cs;
+  wire          ppi_control_cs;
+
+  reg [7:0]     ppi_a;
+  reg [7:0]     ppi_c;
+  reg [7:0]     ppi_control;
+  wire          ppi_a_input = ppi_control[4];
 
   // Miscellaneous signals
   wire [7:0]    acia_dout;
@@ -113,6 +119,13 @@ module top #(
   wire [7:0]  dpram_out;
   wire [7:0]  rom_out;
 
+  wire   [7:0]  red;
+  wire   [7:0]  green;
+  wire   [7:0]  blue;
+  wire          hsync;
+  wire          vsync;
+  wire          vga_de;
+  
   // ===============================================================
   // System Clock generation
   // ===============================================================
@@ -172,7 +185,10 @@ module top #(
   assign ga_cs = cpu_address[15:14] == 2'b01;
   assign rom_bank_cs = cpu_address[13] == 1'b0;
 
+  assign ppi_a_cs = cpu_address[15:8] == 8'hf4;
   assign ppi_b_cs = cpu_address[15:8] == 8'hf5;
+  assign ppi_c_cs = cpu_address[15:8] == 8'hf6;
+  assign ppi_control_cs = cpu_address[15:8] == 8'hf7;
 
   // ===============================================================
   // Memory decoding
@@ -186,7 +202,7 @@ module top #(
         3: if (!hi_rom_disable) cpu_data_in = rom_out; else cpu_data_in = dpram_out;
       endcase
     end else if (n_iord == 1'b0) begin
-      if (ppi_b_cs) cpu_data_in <= 8'h1e; // Amstrad branding
+      if (ppi_b_cs) cpu_data_in <= 8'h1e | vsync; // Amstrad branding
     end
   end
 
@@ -215,29 +231,37 @@ module top #(
   // CPC OUTs
   // ===============================================================
   always @(posedge clk_cpu) begin
-    if (ga_cs && n_iowr == 1'b0) begin
-      case (cpu_data_out[7:6])
-        0: begin
-             border_selected <= cpu_address[4];
-             if (!cpu_data_out[4]) pen <= cpu_data_out[3:0];
-           end
-        1: begin
-             if (border_selected) border_color = cpu_data_out[4:0];
-             else colors[pen] = cpu_data_out[4:0];
-           end
-        2: begin
-             int_gen <= cpu_data_out[4];
-             hi_rom_disable <= cpu_data_out[3];
-             lo_rom_disable <= cpu_data_out[2];
-             mode <= cpu_data_out[1:0];
-           end
-        3: begin
-             ram_bank <= cpu_data_out[5:3];
-             ram_config = cpu_data_out[2:0];
-           end
-      endcase
-    end else if (rom_bank_cs && n_iowr == 1'b0) begin
-      rom_bank <= cpu_data_out[3:0];
+    if (n_iowr == 1'b0) begin
+      if (ga_cs) begin
+        case (cpu_data_out[7:6])
+          0: begin
+               border_selected <= cpu_address[4];
+               if (!cpu_data_out[4]) pen <= cpu_data_out[3:0];
+             end
+          1: begin
+               if (border_selected) border_color = cpu_data_out[4:0];
+               else colors[pen] = cpu_data_out[4:0];
+             end
+          2: begin
+               int_gen <= cpu_data_out[4];
+               hi_rom_disable <= cpu_data_out[3];
+               lo_rom_disable <= cpu_data_out[2];
+               mode <= cpu_data_out[1:0];
+             end
+          3: begin
+               ram_bank <= cpu_data_out[5:3];
+               ram_config = cpu_data_out[2:0];
+             end
+        endcase
+      end else if (rom_bank_cs) begin
+        rom_bank <= cpu_data_out[3:0];
+      end else if (ppi_a_cs) begin
+        ppi_a <= cpu_data_out;
+      end else if (ppi_c_cs) begin
+        ppi_c <= cpu_data_out;
+      end else if (ppi_control_cs) begin
+        ppi_control <= cpu_data_out;
+      end
     end
   end
 
@@ -253,6 +277,12 @@ module top #(
   assign usb_fpga_pu_dn = 1;
 
   wire [10:0] ps2_key;
+  wire [24:0] ps2_mouse = 0;
+  wire        keypad_mod = 0;
+  wire        right_shift_mod = 0;
+  wire [7:0]  kbd_out;
+  wire [9:0]  fn;
+  wire        key_nmi;
 
   generate
     if (c_keyboard) begin
@@ -264,6 +294,23 @@ module top #(
        .ps2_key(ps2_key)
       );
     end
+
+    hid keyboard(
+      .clk(clk_cpu),
+      .reset(reset),
+      .key_strobe(ps2_key[10]),
+      .key_pressed(ps2_key[9]),
+      .key_extended(ps2_key[8]),
+      .key_code(ps2_key[7:0]),
+      .right_shift_mod(right_shift_mod),
+      .keypad_mod(keypad_mod),
+      .ps2_mouse(ps2_mouse),
+      .X(kbd_out),
+      .Y(ppi_c[3:0]),
+      .Fn(fn),
+      .key_nmi(key_nmi)
+    );
+       
   endgenerate
 
   // ===============================================================
@@ -387,12 +434,6 @@ module top #(
   // ===============================================================
   // Video
   // ===============================================================
-  wire   [7:0]  red;
-  wire   [7:0]  green;
-  wire   [7:0]  blue;
-  wire          hsync;
-  wire          vsync;
-  wire          vga_de;
   
   generate
     genvar i;
@@ -617,7 +658,6 @@ module top #(
   // ===============================================================
   // Leds
   // ===============================================================
-  //assign led = {border_color, mode};
-  always @(posedge clk_cpu) if (vid_out != 0 && led == 0) led <= vid_out;
+  assign led = ps2_key[7:0];
   
 endmodule
