@@ -115,9 +115,10 @@ module top #(
   reg [2:0]     ram_bank;
   reg [2:0]     ram_config;
   reg [3:0]     rom_bank;
-  wire [7:0]  ram_out;
-  wire [7:0]  dpram_out;
-  wire [7:0]  rom_out;
+  wire [7:0]    ram_out;
+  wire [7:0]    dpram_out;
+  wire [7:0]    rom_out;
+  wire [7:0]    kbd_out;
 
   wire   [7:0]  red;
   wire   [7:0]  green;
@@ -202,7 +203,8 @@ module top #(
         3: if (!hi_rom_disable) cpu_data_in = rom_out; else cpu_data_in = dpram_out;
       endcase
     end else if (n_iord == 1'b0) begin
-      if (ppi_b_cs) cpu_data_in <= 8'h1e | vsync; // Amstrad branding
+      if (ppi_b_cs) cpu_data_in = 8'h1e | vsync; // Amstrad branding
+      if (ppi_a_cs) cpu_data_in = kbd_out;
     end
   end
 
@@ -280,7 +282,6 @@ module top #(
   wire [24:0] ps2_mouse = 0;
   wire        keypad_mod = 0;
   wire        right_shift_mod = 0;
-  wire [7:0]  kbd_out;
   wire [9:0]  fn;
   wire        key_nmi;
 
@@ -658,6 +659,6 @@ module top #(
   // ===============================================================
   // Leds
   // ===============================================================
-  assign led = ps2_key[7:0];
+  assign led = kbd_out;
   
 endmodule
