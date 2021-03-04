@@ -510,8 +510,30 @@ module top #(
   // ===============================================================
   // Audio
   // ===============================================================
-  assign audio_l = 0;
+  wire [9:0] sound_10;
+  assign audio_l = sound_10[7:4];
   assign audio_r = audio_l;
+  wire [7:0] ch_a, ch_b, ch_c;
+  wire [7:0] audio_out;
+
+  jt49_bus audio (
+    .rst_n(~reset),
+    .clk(clk_cpu),
+    .clk_en(cpu_clk_enable),
+    .bdir(ppi_c[7]),
+    .bc1(ppi_c[6]),
+    .din(ppi_a),
+    .dout(audio_out),
+    .A(ch_a),
+    .B(ch_b),
+    .C(ch_c),
+    .sel(1'b0),
+    .sound(sound_10),
+    .IOA_in(),
+    .IOA_out(),
+    .IOB_in(),
+    .IOB_out()
+  );
 
   // ===============================================================
   // ACIA for serial terminal

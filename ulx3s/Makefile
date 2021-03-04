@@ -9,7 +9,7 @@ VERILOG = ../src/top.v ../src/uart/acia.v ../src/keyboard/ps2.v ../src/keyboard/
 	  ../src/osd/osd.v ../src/osd/spi_osd.v ../src/osd/spi_ram_btn.v \
 	  ../src/osd/spirw_slave_v.v \
 	  ../src/video/video.v ../src/video/hdmi.v \
-          ../src/jt49/jt49.v  ../src/jt49/jt49_exp.v ../src/jt49/jt49_eg.v \
+          ../src/jt49/jt49.v ../src/jt49/jt49_bus.v  ../src/jt49/jt49_exp.v ../src/jt49/jt49_eg.v \
           ../src/jt49/jt49_div.v ../src/jt49/jt49_noise.v ../src/jt49/jt49_cen.v
 
 PIN_DEF = ulx3s_v20.lpf
