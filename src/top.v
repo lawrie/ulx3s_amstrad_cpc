@@ -6,7 +6,7 @@ module top #(
   parameter c_sdram        = 0,  // SDRAM or BRAM 
   parameter c_keyboard     = 1,  // Include keyboard support
   parameter c_diag         = 1,  // 0: No led diagnostcs, 1: led diagnostics 
-  parameter c_speed        = 1,  // CPU speed = 25 / 2 ** (c_speed + 1) MHz
+  parameter c_speed        = 2,  // CPU speed = 25 / 2 ** (c_speed + 1) MHz
   parameter c_reset        = 15, // Bits (minus 1) in power-up reset counter
   parameter c_lcd_hex      = 1   // SPI LCD HEX decoder
 ) (
@@ -109,7 +109,6 @@ module top #(
   reg [4:0]     border_color;
   reg           border_selected;
   reg [4:0]     colors [0:15];
-  reg           int_gen;
   reg           hi_rom_disable;
   reg           lo_rom_disable;
   reg [2:0]     ram_bank;
@@ -119,6 +118,7 @@ module top #(
   wire [7:0]    dpram_out;
   wire [7:0]    rom_out;
   wire [7:0]    kbd_out;
+  wire          key_nmi;
 
   wire   [7:0]  red;
   wire   [7:0]  green;
@@ -245,7 +245,6 @@ module top #(
                else colors[pen] = cpu_data_out[4:0];
              end
           2: begin
-               int_gen <= cpu_data_out[4];
                hi_rom_disable <= cpu_data_out[3];
                lo_rom_disable <= cpu_data_out[2];
                mode <= cpu_data_out[1:0];
@@ -283,7 +282,6 @@ module top #(
   wire        keypad_mod = 0;
   wire        right_shift_mod = 0;
   wire [9:0]  fn;
-  wire        key_nmi;
 
   generate
     if (c_keyboard) begin
@@ -465,6 +463,8 @@ module top #(
     .border_color(border_color),
     .pen(col_ind),
     .color(colors[col_ind]),
+    .int_ack(n_iorq == 1'b0 && n_m1 == 1'b0),
+    .int_clear(ga_cs && n_iowr == 1'b0 && cpu_data_out[7:6] == 2 && cpu_data_out[4]),
     .n_int(n_int)
   );
 

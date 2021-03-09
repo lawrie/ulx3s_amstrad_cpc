@@ -14,6 +14,8 @@ module video (
   input [4:0]   border_color,
   input  [4:0]  color,
   output [3:0]  pen,
+  input         int_ack,
+  input         int_clear,
   output        n_int,
 );
 
@@ -38,7 +40,7 @@ module video (
   reg [9:0] hc = 0;
   reg [9:0] vc = 0;
   reg INT = 0;
-  reg[5:0] intCnt = 1;
+  reg[5:0] int_cnt = 0;
 
   reg [23:0] palette [0:26];
 
@@ -74,18 +76,30 @@ module video (
 
   assign n_int = !INT;
 
-  // Set horizontal and vertical counters
+  // Set horizontal and vertical counters, and process interrupts
   always @(posedge clk) begin
+    if (int_ack) begin
+      INT <= 0;
+      int_cnt[5] <= 0;
+    end
+    if (int_clear) begin
+       INT <= 0;
+       int_cnt <= 0;
+    end
     if (hc == HT - 1) begin
       hc <= 0;
+      int_cnt <= int_cnt + 1;
+      if (int_cnt == 52) begin
+        int_cnt <= 0;
+        INT <= 1;
+      end
+      if (vc == VA + VFP + 2) begin // 2 hsyncs after vsync
+        int_cnt <= 0;
+	INT <= int_cnt[5] == 0;
+      end
       if (vc == VT - 1) vc <= 0;
       else vc <= vc + 1;
     end else hc <= hc + 1;
-    if (hc == HA + HFP && vc == VA + VFP) begin
-      INT <= 1;
-    end
-    if (INT) intCnt <= intCnt + 1;
-    if (!intCnt) INT <= 0;
   end
 
   assign vga_hs = !(hc >= HA + HFP && hc < HA + HFP + HS);
