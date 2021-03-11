@@ -1,11 +1,11 @@
 `default_nettype none
 module top #(
   parameter c_vga_out      = 0,  // 0; Just HDMI, 1: VGA and HDMI
-  parameter c_acia_serial  = 1,  // 0: disabled, 1: ACIA serial
-  parameter c_esp32_serial = 0,  // 0: disabled, 1: ESP32 serial (micropython console)
+  parameter c_acia_serial  = 0,  // 0: disabled, 1: ACIA serial
+  parameter c_esp32_serial = 1,  // 0: disabled, 1: ESP32 serial (micropython console)
   parameter c_sdram        = 0,  // SDRAM or BRAM 
   parameter c_keyboard     = 1,  // Include keyboard support
-  parameter c_diag         = 1,  // 0: No led diagnostcs, 1: led diagnostics 
+  parameter c_diag         = 0,  // 0: No led diagnostcs, 1: led diagnostics 
   parameter c_speed        = 2,  // CPU speed = 25 / 2 ** (c_speed + 1) MHz
   parameter c_reset        = 15, // Bits (minus 1) in power-up reset counter
   parameter c_lcd_hex      = 1   // SPI LCD HEX decoder
@@ -106,6 +106,8 @@ module top #(
 
   reg [1:0]     mode;
   reg [3:0]     pen;
+  reg [9:0]     scr_start;
+  reg [4:0]     r_crtc;
   reg [4:0]     border_color;
   reg           border_selected;
   reg [4:0]     colors [0:15];
@@ -203,7 +205,7 @@ module top #(
         3: if (!hi_rom_disable) cpu_data_in = rom_out; else cpu_data_in = dpram_out;
       endcase
     end else if (n_iord == 1'b0) begin
-      if (ppi_b_cs) cpu_data_in = 8'h1e | vsync; // Amstrad branding
+      if (ppi_b_cs) cpu_data_in = 8'h1e | ~vsync; // Amstrad branding
       if (ppi_a_cs) cpu_data_in = kbd_out;
     end
   end
@@ -262,6 +264,11 @@ module top #(
         ppi_c <= cpu_data_out;
       end else if (ppi_control_cs) begin
         ppi_control <= cpu_data_out;
+      end else if (cpu_address[15:8] == 8'hbc) begin
+        r_crtc <= cpu_data_out[4:0];
+      end else if (cpu_address[15:8] == 8'hbd) begin
+        if (r_crtc == 12) scr_start[9:8] <= cpu_data_out[1:0];
+        if (r_crtc == 13) scr_start[7:0] <= cpu_data_out;
       end
     end
   end
@@ -353,6 +360,8 @@ module top #(
   // ===============================================================
   wire [7:0]  vid_out;
   wire [13:0] vga_addr;
+  wire [10:0] adj = vga_addr[10:0] + {scr_start, 1'b0};
+  wire [13:0] vga_addr_adj = {vga_addr[13:11], adj}; 
 
   generate
     if (c_sdram == 0) begin
@@ -377,7 +386,7 @@ module top #(
         .din_a(cpu_data_out),
         .dout_a(dpram_out),
         .clk_b(clk_vga),
-        .addr_b(vga_addr),
+        .addr_b(vga_addr_adj),
         .dout_b(vid_out)
       );
 
@@ -387,7 +396,7 @@ module top #(
         .MEM_INIT_FILE("../../roms/boot.mem")
       ) rom32 (
         .clk(clk_cpu),
-        .addr(cpu_address[15:14] == 0 ? cpu_address : cpu_address - 16'h8000),
+        .addr(cpu_address[14:0]),
         .dout(rom_out)
       );
 
@@ -602,9 +611,7 @@ module top #(
   // HEX decoder does printf("%16X\n%16X\n", r_display[63:0], r_display[127:64]);
   always @(posedge clk_cpu)
     //r_display <= {cpu_data_in, cpu_data_out, cpu_address, pc};
-    r_display <= {colors[15], colors[14], colors[13], colors[12], colors[11], colors[10],
-                  colors[9], colors[8], colors[7], colors[6], colors[5], colors[4],
-                  colors[3], colors[2], colors[1], colors[0], border_color};
+    r_display <= scr_start;
 
   parameter c_color_bits = 16;
   wire [7:0] x;
@@ -676,11 +683,9 @@ module top #(
     end
   endgenerate
 
-  always @(posedge clk_cpu) diag16 <= ps2_key;
-
   // ===============================================================
   // Leds
   // ===============================================================
-  assign led = kbd_out;
+  assign led = 0;
   
 endmodule

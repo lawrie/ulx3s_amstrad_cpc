@@ -25,8 +25,6 @@ module video (
   parameter HBP = 48;
   parameter HT  = HA + HS + HFP + HBP;
   parameter HB = 0;
-  parameter HB2 = HB/2-8; // NOTE pixel coarse H-adjust
-  parameter HDELAY = 3; // NOTE pixel fine H-adjust
   parameter HB_ADJ = 0; // NOTE border H-adjust
 
   parameter VA = 480;
