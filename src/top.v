@@ -3,10 +3,10 @@ module top #(
   parameter c_vga_out      = 0,  // 0; Just HDMI, 1: VGA and HDMI
   parameter c_acia_serial  = 0,  // 0: disabled, 1: ACIA serial
   parameter c_esp32_serial = 1,  // 0: disabled, 1: ESP32 serial (micropython console)
-  parameter c_sdram        = 0,  // SDRAM or BRAM 
+  parameter c_sdram        = 0,  // SDRAM or BRAM (SDRAM not working) 
   parameter c_keyboard     = 1,  // Include keyboard support
   parameter c_diag         = 0,  // 0: No led diagnostcs, 1: led diagnostics 
-  parameter c_speed        = 2,  // CPU speed = 25 / 2 ** (c_speed + 1) MHz
+  parameter c_speed        = 1,  // CPU speed = 16 / 2 ** (c_speed + 1) MHz
   parameter c_reset        = 15, // Bits (minus 1) in power-up reset counter
   parameter c_lcd_hex      = 1   // SPI LCD HEX decoder
 ) (
@@ -139,8 +139,8 @@ module top #(
       .in_hz( 25*1000000),
     .out0_hz(125*1000000),
     .out1_hz( 25*1000000),
-    .out2_hz(100*1000000),                // SDRAM core
-    .out3_hz(100*1000000), .out3_deg(180) // SDRAM chip 45-330:ok 0-30:not
+    .out2_hz( 16*1000000),
+    .out2_tol_hz(1000000)
   )
   ecp5pll_inst
   (
@@ -150,9 +150,7 @@ module top #(
   );
   wire clk_hdmi  = clocks[0];
   wire clk_vga   = clocks[1];
-  wire clk_cpu  = clocks[1];
-  wire clk_sdram = clocks[2];
-  wire sdram_clk = clocks[3]; // phase shifted for chip
+  wire clk_cpu  = clocks[2];
 
   // ===============================================================
   // CPU clock generation
@@ -216,7 +214,7 @@ module top #(
   tv80n cpu1 (
     .reset_n(n_reset),
     .clk(cpu_clk_enable),
-    .wait_n(~spi_load & ~r_btn_joy[1]),
+    .wait_n(~spi_load),
     .int_n(n_int),
     .nmi_n(1'b1),
     .busrq_n(1'b1),
