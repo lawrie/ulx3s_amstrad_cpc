@@ -155,13 +155,14 @@ module top #(
   // ===============================================================
   // CPU clock generation
   // ===============================================================
-  reg [c_speed:0] cpu_clk_count;
+  reg [c_speed+1:0] cpu_clk_count;
   
   always @(posedge clk_cpu) begin
     cpu_clk_count <= cpu_clk_count + 1;
   end
 
   wire cpu_clk_enable = cpu_clk_count[c_speed]; 
+  wire sound_clk = cpu_clk_count[c_speed+1];
 
   // ===============================================================
   // Reset generation
@@ -525,8 +526,8 @@ module top #(
 
   jt49_bus audio (
     .rst_n(~reset),
-    .clk(clk_cpu),
-    .clk_en(cpu_clk_enable),
+    .clk(cpu_clk_enable),
+    .clk_en(sound_clk),
     .bdir(ppi_c[7]),
     .bc1(ppi_c[6]),
     .din(ppi_a),
