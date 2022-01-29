@@ -5,7 +5,7 @@ module top #(
   parameter c_esp32_serial = 1,  // 0: disabled, 1: ESP32 serial (micropython console)
   parameter c_sdram        = 0,  // SDRAM or BRAM (SDRAM not working) 
   parameter c_keyboard     = 1,  // Include keyboard support
-  parameter c_diag         = 0,  // 0: No led diagnostcs, 1: led diagnostics 
+  parameter c_diag         = 1,  // 0: No led diagnostcs, 1: led diagnostics 
   parameter c_speed        = 1,  // CPU speed = 16 / 2 ** (c_speed + 1) MHz
   parameter c_reset        = 15, // Bits (minus 1) in power-up reset counter
   parameter c_lcd_hex      = 1   // SPI LCD HEX decoder
@@ -55,7 +55,7 @@ module top #(
   output        oled_dc,
   output        oled_resn,
   // Leds
-  output [7:0]  led
+  output reg [7:0]  led
 );
 
   // ===============================================================
@@ -88,6 +88,10 @@ module top #(
 
   wire          ga_cs;
   wire          rom_bank_cs;
+  wire [3:0]    fdc_sel;
+  wire          u765_sel;
+  wire [7:0]    u765_dout;
+  wire [7:0]    fdc_out;
   wire          ppi_a_cs;
   wire          ppi_b_cs;
   wire          ppi_c_cs;
@@ -115,7 +119,7 @@ module top #(
   reg           lo_rom_disable;
   reg [2:0]     ram_bank;
   reg [2:0]     ram_config;
-  reg [3:0]     rom_bank;
+  reg [7:0]     rom_bank;
   wire [7:0]    ram_out;
   wire [7:0]    dpram_out;
   wire [7:0]    rom_out;
@@ -187,6 +191,10 @@ module top #(
   assign ga_cs = cpu_address[15:14] == 2'b01;
   assign rom_bank_cs = cpu_address[13] == 1'b0;
 
+  assign fdc_sel = {cpu_address[10], cpu_address[8], cpu_address[7], cpu_address[0]};
+  assign u765_sel = fdc_sel[3:1] == 3'b010;
+  assign fdc_out = u765_sel & ~n_iord ? u765_dout : 8'hff;
+
   assign ppi_a_cs = cpu_address[15:8] == 8'hf4;
   assign ppi_b_cs = cpu_address[15:8] == 8'hf5;
   assign ppi_c_cs = cpu_address[15:8] == 8'hf6;
@@ -196,7 +204,7 @@ module top #(
   // Memory decoding
   // ===============================================================
   always @* begin
-    cpu_data_in = 0;
+    cpu_data_in = 8'h00;
     if (n_memrd == 1'b0) begin
       cpu_data_in = ram_out;
       case (cpu_address[15:14])
@@ -206,6 +214,7 @@ module top #(
     end else if (n_iord == 1'b0) begin
       if (ppi_b_cs) cpu_data_in = 8'h1e | ~vsync; // Amstrad branding
       if (ppi_a_cs) cpu_data_in = kbd_out;
+      if (u765_sel) cpu_data_in = 8'h80;
     end
   end
 
@@ -256,7 +265,7 @@ module top #(
              end
         endcase
       end else if (rom_bank_cs) begin
-        rom_bank <= cpu_data_out[3:0];
+        rom_bank <= cpu_data_out;
       end else if (ppi_a_cs) begin
         ppi_a <= cpu_data_out;
       end else if (ppi_c_cs) begin
@@ -391,15 +400,16 @@ module top #(
 
       rom #( 
         .DATA_WIDTH(8),
-        .DEPTH(32 * 1024),
+        .DEPTH(64 * 1024),
         .MEM_INIT_FILE("../../roms/boot.mem")
       ) rom32 (
         .clk(clk_cpu),
-        .addr(cpu_address[14:0]),
+	// Bank 0 is OS, Bank 1 is Basic
+        .addr(cpu_address[15:14] == 0 ? cpu_address : {rom_bank == 7 ? 2'b10 : 2'b01, cpu_address[13:0]}),
         .dout(rom_out)
       );
 
-    end else begin
+    end else begin // SDRAM mode not currently working
       wire sdram_d_wr;
       wire [15:0] sdram_d_in, sdram_d_out;
       wire [23:0] sdram_address = {8'b0, cpu_address};
@@ -685,6 +695,10 @@ module top #(
   // ===============================================================
   // Leds
   // ===============================================================
-  assign led = 0;
-  
+  reg [15:0] old_pc;
+  always @(posedge clk_cpu) begin
+    led <= rom_bank;
+    if (!n_memrd && cpu_address[15:14] == 3) diag16 <= cpu_address;
+  end
+
 endmodule
