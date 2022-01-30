@@ -676,6 +676,52 @@ module top #(
   endgenerate
 
   // ===============================================================
+  // Floppy disk controller
+  // ===============================================================
+  
+  wire u765_ready;
+  wire motor;
+  wire [7:0] u765_dout;
+  wire img_mounted;
+  wire [31:0] img_size;
+  wire [31:0] sd_lba;
+  wire [1:0] sd_rd;
+  wire [1:0] sd_wr;
+  wire sd_ack;
+  wire [8:0] sd_buff_addr;
+  wire [7:0] sd_buff_dout;
+  wire [7:0] sd_buff_din;
+  wire sd_buff_wr;
+
+  u765 u765 (
+    .reset(0),
+    .clk_sys(clk_cpu),
+    .ce(cpu_clk_enable),
+	
+    .fast(0),
+    .a0(fdc_sel[0]),
+    .ready(u765_ready),
+    .motor({motor,motor}),
+    .available(2'b11),
+    .nRD(~(u765_sel & n_iord)),
+    .nWR(~(u765_sel & n_iowr)),
+    .din(cpu_data_out),
+    .dout(u765_dout),
+
+    .img_mounted(img_mounted),
+    .img_size(img_size[31:0]),
+    .img_wp(1),
+    .sd_lba(sd_lba),
+    .sd_rd(sd_rd),
+    .sd_wr(sd_wr),
+    .sd_ack(sd_ack),
+    .sd_buff_addr(sd_buff_addr),
+    .sd_buff_dout(sd_buff_dout),
+    .sd_buff_din(sd_buff_din),
+    .sd_buff_wr(sd_buff_wr)
+);
+
+  // ===============================================================
   // Led diagnostics
   // ===============================================================
   reg [15:0] diag16;
