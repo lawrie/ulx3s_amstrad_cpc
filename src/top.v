@@ -122,6 +122,7 @@ module top #(
   reg [7:0]     rom_bank;
   wire [7:0]    ram_out;
   wire [7:0]    dpram_out;
+  wire [7:0]    u765_dout;
   wire [7:0]    rom_out;
   wire [7:0]    kbd_out;
   wire          key_nmi;
@@ -166,6 +167,7 @@ module top #(
   end
 
   wire cpu_clk_enable = cpu_clk_count[c_speed]; 
+  wire u765_enable = cpu_clk_count[c_speed - 1]; 
   wire sound_clk = cpu_clk_count[c_speed+1];
 
   // ===============================================================
@@ -173,7 +175,7 @@ module top #(
   // ===============================================================
   reg [c_reset:0] pwr_up_reset_counter = 0;
   wire            pwr_up_reset_n = &pwr_up_reset_counter;
-  wire            n_reset = pwr_up_reset_n & btn[0] & ~r_cpu_control[0];
+  wire            n_reset = pwr_up_reset_n & btn[0];
   wire            reset = ~n_reset;
 
   always @(posedge clk_cpu) begin
@@ -214,7 +216,7 @@ module top #(
     end else if (n_iord == 1'b0) begin
       if (ppi_b_cs) cpu_data_in = 8'h1e | ~vsync; // Amstrad branding
       if (ppi_a_cs) cpu_data_in = kbd_out;
-      if (u765_sel) cpu_data_in = 8'h80;
+      if (u765_sel) cpu_data_in = u765_dout;
     end
   end
 
@@ -333,7 +335,8 @@ module top #(
   wire        spi_ram_wr, spi_ram_rd;
   wire [31:0] spi_ram_addr;
   wire [7:0]  spi_ram_di;
-  wire [7:0]  spi_ram_do = ram_out;
+  wire [7:0]  sd_buff_dout;
+  wire [7:0]  spi_ram_do = sd_buff_dout;
   wire        irq;
 
   assign sd_d[3] = 1'bz; // FPGA pin pullup sets SD card inactive at SPI bus
@@ -679,37 +682,83 @@ module top #(
   // Floppy disk controller
   // ===============================================================
   
-  wire u765_ready;
+  reg [1:0] u765_ready;
   wire motor;
-  wire [7:0] u765_dout;
-  wire img_mounted;
-  wire [31:0] img_size;
+  reg [1:0] img_mounted = 2'b0;
+  reg [31:0] img_size;
   wire [31:0] sd_lba;
   wire [1:0] sd_rd;
   wire [1:0] sd_wr;
   wire sd_ack;
   wire [8:0] sd_buff_addr;
-  wire [7:0] sd_buff_dout;
   wire [7:0] sd_buff_din;
   wire sd_buff_wr;
 
+  // Floppy is ready when image is mounted and image size greater than 0
+  // Currently only one floppy disk is supported
+  always @(posedge clk_cpu) if(img_mounted[0]) u765_ready[0] <= |img_size;
+  always @(posedge clk_cpu) if(img_mounted[1]) u765_ready[1] <= |img_size;
+
+  // Detect switching motor on and off - logic looks dodgy
+  reg old_wr;
+  always @(posedge clk_cpu) begin
+    old_wr <= ~n_iowr;
+    if(~old_wr && ~n_iowr && !fdc_sel[3:1]) begin
+      motor <= cpu_data_out[0];
+    end
+  end
+
+  // Set mounted and image size
+  reg old_spi_load;
+  always @(posedge clk_cpu) begin
+    old_spi_load <= spi_load;
+    // Set mounted when load finishes
+    if (!spi_load && old_spi_load) img_mounted[0] <= 1;
+    // Unset mounted when load starts
+    if (spi_load && !old_spi_load) img_mounted[0] <= 0;
+    // Update image size when byte written
+    if (spi_ram_wr && spi_ram_addr[31:24] == 0) begin
+      img_size <= spi_ram_addr + 1;
+    end
+  end
+
+  // Byte is available on next cycle
+  always @(posedge clk_cpu) begin
+    sd_ack <= sd_rd;
+    sd_buff_wr <= sd_rd;
+    if (sd_rd) sd_buff_addr <= sd_buff_addr + 1;
+  end
+
+  // Ram for 180kb floppy disk side
+  ram #(
+    .DATA_WIDTH(8),
+    .DEPTH(180 * 1024)
+  ) fdc_ram (
+    .clk(clk_cpu),
+    .we(spi_ram_wr && spi_ram_addr[31:24] == 0),
+    .addr(spi_load ? spi_ram_addr : {sd_lba, sd_buff_addr}),
+    .din(spi_ram_di),
+    .dout(sd_buff_dout)
+  );
+
+  // Floppy disk controller
   u765 u765 (
-    .reset(0),
+    .reset(reset),
     .clk_sys(clk_cpu),
-    .ce(cpu_clk_enable),
+    .ce(u765_enable),
 	
     .fast(0),
     .a0(fdc_sel[0]),
     .ready(u765_ready),
     .motor({motor,motor}),
     .available(2'b11),
-    .nRD(~(u765_sel & n_iord)),
-    .nWR(~(u765_sel & n_iowr)),
+    .nRD(~(u765_sel & ~n_iord)),
+    .nWR(~(u765_sel & ~n_iowr)),
     .din(cpu_data_out),
     .dout(u765_dout),
 
     .img_mounted(img_mounted),
-    .img_size(img_size[31:0]),
+    .img_size(img_size),
     .img_wp(1),
     .sd_lba(sd_lba),
     .sd_rd(sd_rd),
@@ -743,8 +792,9 @@ module top #(
   // ===============================================================
   reg [15:0] old_pc;
   always @(posedge clk_cpu) begin
-    led <= rom_bank;
-    if (!n_memrd && cpu_address[15:14] == 3) diag16 <= cpu_address;
+    //led <= {motor, sd_ack, sd_rd, spi_load, u765_ready[0], img_mounted[0]};
+    if (sd_rd) diag16 <= diag16 + 1;
+    if (spi_ram_addr && spi_ram_wr) led <= sd_buff_dout;
   end
 
 endmodule

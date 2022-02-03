@@ -31,7 +31,7 @@ class ld_nes:
   # LOAD/SAVE and CPU control
 
   # read from file -> write to SPI RAM
-  def load_stream(self, filedata, addr=0, maxlen=0x110000, blocksize=1024):
+  def load_stream(self, filedata, addr=0, maxlen=0x110000, blocksize=256):
     block = bytearray(blocksize)
     # Request load
     self.cs.on()
