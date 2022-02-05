@@ -151,34 +151,32 @@ reg          sd_buff_type;
 reg          tinfo_hds, tinfo_ds0, tinfo_lock, tinfo_wait;
 reg          hds, ds0;
 
-u765_dpram #(8, 11) tinfo_ram
+dpram #(.DATA_WIDTH(8), .DEPTH(2048)) tinfo_ram
 (
-	.clock(clk_sys),
+        .clk_a(clk_sys),
+        .addr_a({tinfo_ds0,tinfo_hds,sd_buff_addr}),
+        .din_a(sd_buff_dout),
+        .we_a(sd_buff_wr & sd_ack & sd_buff_type == UPD765_SD_BUFF_TRACKINFO),
+        .dout_a(),
 
-	.address_a({tinfo_ds0,tinfo_hds,sd_buff_addr}),
-	.data_a(sd_buff_dout),
-	.wren_a(sd_buff_wr & sd_ack & sd_buff_type == UPD765_SD_BUFF_TRACKINFO),
-	.q_a(),
-
-	.address_b({tinfo_ds0,tinfo_hds,tinfo_addr}),
-	.data_b(),
-	.wren_b(1'b0),
-	.q_b(tinfo_data)
+        .clk_b(clk_sys),
+        .addr_b({tinfo_ds0,tinfo_hds,tinfo_addr}),
+        .dout_b(tinfo_data)
 );
 
-u765_dpram #(8, 9) sector_ram
+dpram2 #(.DATA_WIDTH(8), .DEPTH(512)) sector_ram
 (
-	.clock(clk_sys),
+        .clk_a(clk_sys),
+        .addr_a(sd_buff_addr),
+        .din_a(sd_buff_dout),
+        .we_a(sd_buff_wr & sd_ack & sd_buff_type == UPD765_SD_BUFF_SECTOR),
+        .dout_a(sd_buff_din),
 
-	.address_a(sd_buff_addr),
-	.data_a(sd_buff_dout),
-	.wren_a(sd_buff_wr & sd_ack & sd_buff_type == UPD765_SD_BUFF_SECTOR),
-	.q_a(sd_buff_din),
-
-	.address_b(buff_addr),
-	.data_b(buff_data_out),
-	.wren_b(buff_wr),
-	.q_b(buff_data_in)
+        .clk_b(clk_sys),
+        .addr_b(buff_addr),
+        .din_b(buff_data_out),
+        .we_b(buff_wr),
+        .dout_b(buff_data_in)
 );
 
 //track offset buffer
@@ -258,84 +256,85 @@ reg  [7:0] m_data;    //data register
 
 assign dout = a0 ? m_data : m_status;
 
-always @(posedge clk_sys) begin : fdc
 
-   //prefix internal CE protected registers with i_, so it's easier to write constraints
+//prefix internal CE protected registers with i_, so it's easier to write constraints
 
-	//per-drive data
-	reg[31:0] image_size[2];
-	reg       image_ready[2];
-	reg [7:0] image_tracks[2];
-	reg       image_sides[2]; //1 side - 0, 2 sides - 1
-	reg [1:0] image_wp;
-	reg       image_trackinfo_dirty[2];
-	reg       image_edsk[2]; //DSK - 0, EDSK - 1
-	reg [1:0] image_scan_state[2];
-	reg[19:0] i_rpm_time[2][2];
-	reg[19:0] i_steptimer[2], i_rpm_timer[2][2];
-	reg [3:0] i_step_state[2]; //counting cycles for steptimer
+//per-drive data
+reg[31:0] image_size[2];
+reg       image_ready[2];
+reg [7:0] image_tracks[2];
+reg       image_sides[2]; //1 side - 0, 2 sides - 1
+reg [1:0] image_wp;
+reg       image_trackinfo_dirty[2];
+reg       image_edsk[2]; //DSK - 0, EDSK - 1
+reg [1:0] image_scan_state[2];
+reg[19:0] i_rpm_time[2][2];
+reg[19:0] i_steptimer[2], i_rpm_timer[2][2];
+reg [3:0] i_step_state[2]; //counting cycles for steptimer
 
-	reg [7:0] i_current_track_sectors[2][2]; // sectors/track
-	reg [7:0] i_current_sector_pos[2][2]; //sector where the head currently positioned
-	reg [7:0] i_next_sector_pos[2][2];    //next sector where the head will positioned
-	reg       i_secinfo_valid[2][2];
-	reg [7:0] ncn[2]; //new cylinder number
-	reg [7:0] pcn[2]; //present cylinder number
-	reg [2:0] next_weak_sector[2];
-	reg [2:0] seek_state[2];
-	reg       i_seek_start[2];
-	reg       int_state[2];
+reg [7:0] i_current_track_sectors[2][2]; // sectors/track
+reg [7:0] i_current_sector_pos[2][2]; //sector where the head currently positioned
+reg [7:0] i_next_sector_pos[2][2];    //next sector where the head will positioned
+reg       i_secinfo_valid[2][2];
+reg [7:0] ncn[2]; //new cylinder number
+reg [7:0] pcn[2]; //present cylinder number
+reg [2:0] next_weak_sector[2];
+reg [2:0] seek_state[2];
+reg       i_seek_start[2];
+reg       int_state[2];
 
-	// sector search
-	reg       sector_search_ds0;
-	reg       sector_search_hds;
-	reg [2:0] sector_search_state;
-	reg [7:0] sector_pos[2][2];    // current sector on the track
-	reg[31:0] sector_offset[2][2]; // sector start offset in the image file
-	reg [7:0] sector_c[2][2];      // C
-	reg [7:0] sector_h[2][2];      // H
-	reg [7:0] sector_r[2][2];      // R
-	reg [7:0] sector_n[2][2];      // N
-	reg [7:0] sector_st1[2][2];    // ST1
-	reg [7:0] sector_st2[2][2];    // ST2
-	reg[15:0] sector_length[2][2]; // Actual data length
+// sector search
+reg       sector_search_ds0;
+reg       sector_search_hds;
+reg [2:0] sector_search_state = 0;
+reg [7:0] sector_pos[2][2];    // current sector on the track
+reg[31:0] sector_offset[2][2]; // sector start offset in the image file
+reg [7:0] sector_c[2][2];      // C
+reg [7:0] sector_h[2][2];      // H
+reg [7:0] sector_r[2][2];      // R
+reg [7:0] sector_n[2][2];      // N
+reg [7:0] sector_st1[2][2];    // ST1
+reg [7:0] sector_st2[2][2];    // ST2
+reg[15:0] sector_length[2][2]; // Actual data length
 
-	reg old_wr, old_rd;
-	reg [7:0] i_track_size;
-	reg [7:0] i_sector_c, i_sector_h, i_sector_r, i_sector_n;
-	reg [7:0] i_sector_st1, i_sector_st2;
-	reg [15:0] i_sector_size;
-	reg [7:0] i_current_sector;
-	reg [7:0] i_sector;
-	reg i_scanning;
-	reg [2:0] i_weak_sector;
-	reg [15:0] i_bytes_to_read;
-	reg [2:0] i_substate;
-	reg [1:0] old_mounted;
-	reg [15:0] i_track_offset;
-	reg [19:0] i_timeout;
-	reg [7:0] i_head_timer;
-	reg i_rtrack, i_write, i_rw_deleted;
-	reg [7:0] status[4]; //st0-3
-	state_t state, i_command;
-	reg i_current_drive, i_scan_lock;
-	reg [3:0] i_srt; //stepping rate
+reg old_wr, old_rd;
+reg [7:0] i_track_size;
+reg [7:0] i_sector_c, i_sector_h, i_sector_r, i_sector_n;
+reg [7:0] i_sector_st1, i_sector_st2;
+reg [15:0] i_sector_size;
+reg [7:0] i_current_sector;
+reg [7:0] i_sector;
+reg i_scanning;
+reg [2:0] i_weak_sector;
+reg [15:0] i_bytes_to_read;
+reg [2:0] i_substate;
+reg [1:0] old_mounted;
+reg [15:0] i_track_offset;
+reg [19:0] i_timeout;
+reg [7:0] i_head_timer;
+reg i_rtrack, i_write, i_rw_deleted;
+reg [7:0] status[4]; //st0-3
+state_t state, i_command;
+reg i_current_drive, i_scan_lock;
+reg [3:0] i_srt; //stepping rate
 //	reg [3:0] i_hut; //head unload time
 //	reg [6:0] i_hlt; //head load time
-	reg [7:0] i_c;
-	reg [7:0] i_h;
-	reg [7:0] i_r;
-	reg [7:0] i_n;
-	reg [7:0] i_eot;
+reg [7:0] i_c;
+reg [7:0] i_h;
+reg [7:0] i_r;
+reg [7:0] i_n;
+reg [7:0] i_eot;
 	//reg [7:0] i_gpl;
-	reg [7:0] i_dtl;
-	reg [7:0] i_sc;
+reg [7:0] i_dtl;
+reg [7:0] i_sc;
 	//reg [7:0] i_d;
-	reg i_bc; //bad cylinder
+reg i_bc; //bad cylinder
 
-	reg i_mt;
+reg i_mt;
 	//reg i_mfm;
-	reg i_sk;
+reg i_sk;
+
+always @(posedge clk_sys) begin : fdc
 
 	buff_wait <= 0;
 	tinfo_wait <= 0;
@@ -364,7 +363,7 @@ always @(posedge clk_sys) begin : fdc
 		i_current_drive <= ~i_current_drive;
 	end
 
-   //Process the image file
+   	//Process the image file
 	if (ce) begin
 		case (image_scan_state[i_current_drive])
 			0: ;//no new image
@@ -1370,43 +1369,6 @@ always @(posedge clk_sys) begin : fdc
 
 		endcase //status
 
-	end
-end
-
-endmodule
-
-module u765_dpram #(parameter DATAWIDTH=8, ADDRWIDTH=12)
-(
-	input	                clock,
-
-	input	[ADDRWIDTH-1:0] address_a,
-	input	[DATAWIDTH-1:0] data_a,
-	input	                wren_a,
-	output reg [DATAWIDTH-1:0] q_a,
-
-	input	[ADDRWIDTH-1:0] address_b,
-	input	[DATAWIDTH-1:0] data_b,
-	input	                wren_b,
-	output reg [DATAWIDTH-1:0] q_b
-);
-
-logic [DATAWIDTH-1:0] ram[0:(1<<ADDRWIDTH)-1];
-
-always_ff@(posedge clock) begin
-	if(wren_a) begin
-		ram[address_a] <= data_a;
-		q_a <= data_a;
-	end else begin
-		q_a <= ram[address_a];
-	end
-end
-
-always_ff@(posedge clock) begin
-	if(wren_b) begin
-		ram[address_b] <= data_b;
-		q_b <= data_b;
-	end else begin
-		q_b <= ram[address_b];
 	end
 end
 

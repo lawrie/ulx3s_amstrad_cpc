@@ -689,8 +689,8 @@ module top #(
   wire [31:0] sd_lba;
   wire [1:0] sd_rd;
   wire [1:0] sd_wr;
-  wire sd_ack;
-  wire [8:0] sd_buff_addr;
+  wire  sd_ack;
+  reg [8:0] sd_buff_addr;
   wire [7:0] sd_buff_din;
   wire sd_buff_wr;
 
@@ -722,11 +722,29 @@ module top #(
     end
   end
 
-  // Byte is available on next cycle
+  reg old_rd;
+  reg [9:0] bc = 0;
+  reg [1:0] dc;
+
+  assign sd_ack = (bc > 0);
+  assign sd_buff_wr = (bc > 0 && &dc);
+
   always @(posedge clk_cpu) begin
-    sd_ack <= sd_rd;
-    sd_buff_wr <= sd_rd;
-    if (sd_rd) sd_buff_addr <= sd_buff_addr + 1;
+    old_rd <= sd_rd;
+    dc <= dc + 1;
+
+    // If we get a read request, read 512 bytes
+    if (sd_rd && !old_rd) begin
+      sd_buff_addr <= 0;
+      bc <= 512;
+      dc <= 0;
+    end
+
+    // Ack and buff_wr every clock cycle
+    if (bc > 0 && &dc) begin
+      sd_buff_addr <= sd_buff_addr + 1;
+      bc <= bc - 1;
+    end
   end
 
   // Ram for 180kb floppy disk side
@@ -792,9 +810,7 @@ module top #(
   // ===============================================================
   reg [15:0] old_pc;
   always @(posedge clk_cpu) begin
-    //led <= {motor, sd_ack, sd_rd, spi_load, u765_ready[0], img_mounted[0]};
-    if (sd_rd) diag16 <= diag16 + 1;
-    if (spi_ram_addr && spi_ram_wr) led <= sd_buff_dout;
+    led <= sd_buff_dout;
   end
 
 endmodule
