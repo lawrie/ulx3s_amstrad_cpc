@@ -26,7 +26,7 @@ Once you have programmed the bitstream, you should see the "Amstrad 64K Microcom
 
 To load a .dsk image you press all four direction buttons to start the OSD, select the required file, and press the right button.
 
-You can then use the "cat" command to list the disk's contents and the load command to load a program from the disk.
+You can then use the "cat" command to list the disk's contents and the "run <filename>" command to run a program from the disk.
 
 ## Limitations
 
@@ -41,3 +41,17 @@ No extra roms are supported.
 There is no joystick support.
 
 Tape loading is not supported.
+
+## Implementation
+
+The implementation is entirely in Verilog and is based on ulx3s_z80_template.
+  
+Some of the code comes from the Mist/Mister implementations, the Z80 CPU is from @hoglet67's ice40 cores. The OSD and related Ulx3s code is mainly by @emard.
+
+New code is the top level and VGA-mode video driver.
+
+## Bugs
+  
+Floppy disk access is unreliable and many games hang.
+  
+Colors are wrong in some modes.
