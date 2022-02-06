@@ -2,6 +2,8 @@
 
 ## Introduction
 
+![Roland on the Ropes](https://raw.githubusercontent.com/lawrie/lawrie.github.io/master/images/roland.jpg)
+
 This is an emulation of the Amstrad CPC 664, with one disk drive.
 
 The rom is 48KB and comprises  OS664 + BASIC664 + AMSDOS.
