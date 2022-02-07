@@ -8,7 +8,7 @@ module top #(
   parameter c_diag         = 1,  // 0: No led diagnostcs, 1: led diagnostics 
   parameter c_speed        = 1,  // CPU speed = 16 / 2 ** (c_speed + 1) MHz
   parameter c_reset        = 15, // Bits (minus 1) in power-up reset counter
-  parameter c_lcd_hex      = 1   // SPI LCD HEX decoder
+  parameter c_lcd_hex      = 0   // SPI LCD HEX decoder
 ) (
   input         clk_25mhz,
   // Buttons
@@ -168,7 +168,7 @@ module top #(
 
   wire cpu_clk_enable = cpu_clk_count[c_speed]; 
   wire u765_enable = cpu_clk_count[c_speed - 1]; 
-  wire sound_clk = cpu_clk_count[c_speed+1];
+  wire sound_clk = cpu_clk_count[c_speed + 1];
 
   // ===============================================================
   // Reset generation
@@ -324,7 +324,8 @@ module top #(
       .X(kbd_out),
       .Y(ppi_c[3:0]),
       .Fn(fn),
-      .key_nmi(key_nmi)
+      .key_nmi(key_nmi),
+      .joystick1({r_btn_joy[2], r_btn_joy[1], r_btn_joy[3], r_btn_joy[4], r_btn_joy[5], r_btn_joy[6]})
     );
        
   endgenerate
@@ -811,6 +812,7 @@ module top #(
   reg [15:0] old_pc;
   always @(posedge clk_cpu) begin
     led <= sd_buff_dout;
+    if (~n_memrd) diag16 <= cpu_address;
   end
 
 endmodule
