@@ -8,7 +8,7 @@ module top #(
   parameter c_diag         = 1,  // 0: No led diagnostcs, 1: led diagnostics 
   parameter c_speed        = 1,  // CPU speed = 16 / 2 ** (c_speed + 1) MHz
   parameter c_reset        = 15, // Bits (minus 1) in power-up reset counter
-  parameter c_lcd_hex      = 0   // SPI LCD HEX decoder
+  parameter c_lcd_hex      = 1   // SPI LCD HEX decoder
 ) (
   input         clk_25mhz,
   // Buttons
@@ -96,11 +96,17 @@ module top #(
   wire          ppi_b_cs;
   wire          ppi_c_cs;
   wire          ppi_control_cs;
+  wire          crtc_idx_cs;
+  wire          crtc_dout_cs;
+  wire          periph_soft_reset;
+  wire          printer_cs;
 
   reg [7:0]     ppi_a;
   reg [7:0]     ppi_c;
   reg [7:0]     ppi_control;
   wire          ppi_a_input = ppi_control[4];
+  reg [7:0]     h_disp;
+  reg [7:0]     v_disp;
 
   // Miscellaneous signals
   wire [7:0]    acia_dout;
@@ -110,7 +116,7 @@ module top #(
 
   reg [1:0]     mode;
   reg [3:0]     pen;
-  reg [9:0]     scr_start;
+  reg [13:0]    scr_start;
   reg [4:0]     r_crtc;
   reg [4:0]     border_color;
   reg           border_selected;
@@ -127,11 +133,13 @@ module top #(
   wire [7:0]    kbd_out;
   wire          key_nmi;
 
+
   wire   [7:0]  red;
   wire   [7:0]  green;
   wire   [7:0]  blue;
   wire          hsync;
   wire          vsync;
+  wire          long_vsync;
   wire          vga_de;
   
   // ===============================================================
@@ -156,7 +164,6 @@ module top #(
   wire clk_hdmi  = clocks[0];
   wire clk_vga   = clocks[1];
   wire clk_cpu  = clocks[2];
-
   // ===============================================================
   // CPU clock generation
   // ===============================================================
@@ -190,7 +197,7 @@ module top #(
   assign tctrl_cs = 1'b0;
   assign tdata_cs = 1'b0;
 
-  assign ga_cs = cpu_address[15:14] == 2'b01;
+  assign ga_cs = !cpu_address[15]  & cpu_address[14];
   assign rom_bank_cs = cpu_address[13] == 1'b0;
 
   assign fdc_sel = {cpu_address[10], cpu_address[8], cpu_address[7], cpu_address[0]};
@@ -202,6 +209,11 @@ module top #(
   assign ppi_c_cs = cpu_address[15:8] == 8'hf6;
   assign ppi_control_cs = cpu_address[15:8] == 8'hf7;
 
+  assign crtc_idx_cs = cpu_address[15:8] == 8'hbc;
+  assign crtc_dout_cs = cpu_address[15:8] == 8'hbd;
+  assign periph_soft_reset = cpu_address == 16'hf8ff;
+  assign printer_cs = !cpu_address[12];
+  
   // ===============================================================
   // Memory decoding
   // ===============================================================
@@ -214,7 +226,7 @@ module top #(
         3: if (!hi_rom_disable) cpu_data_in = rom_out; else cpu_data_in = dpram_out;
       endcase
     end else if (n_iord == 1'b0) begin
-      if (ppi_b_cs) cpu_data_in = 8'h1e | ~vsync; // Amstrad branding
+      if (ppi_b_cs) cpu_data_in = 8'h1e | long_vsync; // Amstrad branding
       if (ppi_a_cs) cpu_data_in = kbd_out;
       if (u765_sel) cpu_data_in = u765_dout;
     end
@@ -244,41 +256,60 @@ module top #(
   // ===============================================================
   // CPC OUTs
   // ===============================================================
+  reg [15:0] unknown_out;
   always @(posedge clk_cpu) begin
-    if (n_iowr == 1'b0) begin
-      if (ga_cs) begin
-        case (cpu_data_out[7:6])
-          0: begin
-               border_selected <= cpu_address[4];
-               if (!cpu_data_out[4]) pen <= cpu_data_out[3:0];
-             end
-          1: begin
-               if (border_selected) border_color = cpu_data_out[4:0];
-               else colors[pen] = cpu_data_out[4:0];
-             end
-          2: begin
-               hi_rom_disable <= cpu_data_out[3];
-               lo_rom_disable <= cpu_data_out[2];
-               mode <= cpu_data_out[1:0];
-             end
-          3: begin
-               ram_bank <= cpu_data_out[5:3];
-               ram_config = cpu_data_out[2:0];
-             end
-        endcase
-      end else if (rom_bank_cs) begin
-        rom_bank <= cpu_data_out;
-      end else if (ppi_a_cs) begin
-        ppi_a <= cpu_data_out;
-      end else if (ppi_c_cs) begin
-        ppi_c <= cpu_data_out;
-      end else if (ppi_control_cs) begin
-        ppi_control <= cpu_data_out;
-      end else if (cpu_address[15:8] == 8'hbc) begin
-        r_crtc <= cpu_data_out[4:0];
-      end else if (cpu_address[15:8] == 8'hbd) begin
-        if (r_crtc == 12) scr_start[9:8] <= cpu_data_out[1:0];
-        if (r_crtc == 13) scr_start[7:0] <= cpu_data_out;
+    if (reset) begin
+      border_selected <= 0;
+      pen <= 0;
+      hi_rom_disable <= 0;
+      lo_rom_disable <= 0;
+      mode <= 0;
+      ram_bank <= 0;
+      ram_config <= 0;
+      ppi_a <= 0;
+      ppi_c <= 0;
+      ppi_control <= 0;
+      r_crtc <= 0;
+      unknown_out <= 0;
+    end else begin
+      if (n_iowr == 1'b0) begin
+        if (ga_cs) begin
+          case (cpu_data_out[7:6])
+            0: begin
+                 border_selected <= cpu_data_out[4];
+                 pen <= cpu_data_out[3:0];
+               end
+            1: begin
+                 if (border_selected) border_color <= cpu_data_out[4:0];
+                 else colors[pen] <= cpu_data_out[4:0];
+               end
+            2: begin
+                 hi_rom_disable <= cpu_data_out[3];
+                 lo_rom_disable <= cpu_data_out[2];
+                 mode <= cpu_data_out[1:0];
+               end
+            3: begin
+                 ram_bank <= cpu_data_out[5:3];
+                 ram_config <= cpu_data_out[2:0];
+               end
+          endcase
+        end else if (rom_bank_cs) begin
+          rom_bank <= cpu_data_out;
+        end else if (ppi_a_cs) begin
+          ppi_a <= cpu_data_out;
+        end else if (ppi_c_cs) begin
+          ppi_c <= cpu_data_out;
+        end else if (ppi_control_cs) begin
+          ppi_control <= cpu_data_out;
+        end else if (crtc_idx_cs) begin
+          r_crtc <= cpu_data_out[4:0];
+        end else if (crtc_dout_cs) begin
+          if (r_crtc == 1) h_disp <= cpu_data_out;
+          else if (r_crtc == 6) v_disp <= cpu_data_out;
+          else if (r_crtc == 12) scr_start[13:8] <= cpu_data_out[5:0];
+          else if (r_crtc == 13) scr_start[7:0] <= cpu_data_out;
+        end else if (!u765_sel && !periph_soft_reset && fdc_sel[3:1] && !printer_cs)
+        unknown_out <= cpu_address;
       end
     end
   end
@@ -372,7 +403,7 @@ module top #(
   // ===============================================================
   wire [7:0]  vid_out;
   wire [13:0] vga_addr;
-  wire [10:0] adj = vga_addr[10:0] + {scr_start, 1'b0};
+  wire [10:0] adj = vga_addr[10:0] + {scr_start[9:0], 1'b0};
   wire [13:0] vga_addr_adj = {vga_addr[13:11], adj}; 
 
   generate
@@ -408,7 +439,7 @@ module top #(
         .MEM_INIT_FILE("../../roms/boot.mem")
       ) rom32 (
         .clk(clk_cpu),
-	// Bank 0 is OS, Bank 1 is Basic
+         // Bank 0 is OS, Bank 1 is Basic
         .addr(cpu_address[15:14] == 0 ? cpu_address : {rom_bank == 7 ? 2'b10 : 2'b01, cpu_address[13:0]}),
         .dout(rom_out)
       );
@@ -487,7 +518,8 @@ module top #(
     .color(colors[col_ind]),
     .int_ack(n_iorq == 1'b0 && n_m1 == 1'b0),
     .int_clear(ga_cs && n_iowr == 1'b0 && cpu_data_out[7:6] == 2 && cpu_data_out[4]),
-    .n_int(n_int)
+    .n_int(n_int),
+    .long_vsync(long_vsync)
   );
 
   // ===============================================================
@@ -558,7 +590,7 @@ module top #(
   );
 
   // ===============================================================
-  // ACIA for serial terminal
+  // ACIA for serial terminal - not used
   // ===============================================================
   wire acia_txd, acia_rxd;
 
@@ -620,11 +652,28 @@ module top #(
   generate
   if(c_lcd_hex) begin
   // SPI DISPLAY
-  reg [127:0] r_display;
+  reg [255:0] r_display;
   // HEX decoder does printf("%16X\n%16X\n", r_display[63:0], r_display[127:64]);
   always @(posedge clk_cpu)
-    //r_display <= {cpu_data_in, cpu_data_out, cpu_address, pc};
-    r_display <= scr_start;
+    r_display <= {
+            3'b0, colors[0],
+            3'b0, colors[1],
+            3'b0, colors[2],
+            3'b0, colors[3],
+            3'b0, colors[4],
+            3'b0, colors[5],
+            3'b0, colors[6],
+            3'b0, colors[7],
+            3'b0, colors[8],
+            3'b0, colors[9],
+            3'b0, colors[10],
+            3'b0, colors[11],
+            3'b0, colors[12],
+            3'b0, colors[13],
+            3'b0, colors[14],
+            3'b0, colors[15],
+            48'b0, h_disp, v_disp, 
+            2'b0, scr_start, 3'b0, r_crtc, ppi_a, ppi_c, ppi_control, 3'b0, border_color, 6'b0, mode};
 
   parameter c_color_bits = 16;
   wire [7:0] x;
@@ -632,7 +681,7 @@ module top #(
   wire [c_color_bits-1:0] color;
   hex_decoder_v
   #(
-    .c_data_len(128),
+    .c_data_len(256),
     .c_row_bits(4),
     .c_grid_6x8(1), // NOTE: TRELLIS needs -abc9 option to compile
     .c_font_file("hex_font.mem"),
@@ -640,7 +689,7 @@ module top #(
   )
   hex_decoder_v_inst
   (
-    .clk(clk_hdmi),
+    .clk(clk_vga),
     .data(r_display),
     .x(x[7:1]),
     .y(y[7:1]),
@@ -651,7 +700,7 @@ module top #(
   reg [c_color_bits-1:0] r_color;
   wire w_oled_csn;
 
-  always @(posedge clk_hdmi)
+  always @(posedge clk_vga)
     if(next_pixel) r_color <= color;
 
   lcd_video #(
@@ -661,7 +710,7 @@ module top #(
     .c_clk_polarity(1),
     .c_init_size(38)
   ) lcd_video_inst (
-    .clk(clk_hdmi),
+    .clk(clk_vga),
     .reset(r_btn_joy[5]),
     .x(x),
     .y(y),
@@ -765,8 +814,8 @@ module top #(
     .reset(reset),
     .clk_sys(clk_cpu),
     .ce(u765_enable),
-	
-    .fast(0),
+
+    .fast(1),
     .a0(fdc_sel[0]),
     .ready(u765_ready),
     .motor({motor,motor}),
@@ -809,10 +858,9 @@ module top #(
   // ===============================================================
   // Leds
   // ===============================================================
-  reg [15:0] old_pc;
   always @(posedge clk_cpu) begin
+    diag16 <= pc;
     led <= sd_buff_dout;
-    if (~n_memrd) diag16 <= cpu_address;
   end
 
 endmodule

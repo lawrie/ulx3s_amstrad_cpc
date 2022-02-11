@@ -17,6 +17,7 @@ module video (
   input         int_ack,
   input         int_clear,
   output        n_int,
+  output        long_vsync
 );
 
   parameter HA = 640;
@@ -38,38 +39,43 @@ module video (
   reg [9:0] hc = 0;
   reg [9:0] vc = 0;
   reg INT = 0;
-  reg[5:0] int_cnt = 0;
+  reg[6:0] int_cnt = 0;
 
-  reg [23:0] palette [0:26];
+  reg [23:0] palette [0:31];
 
   initial begin
-    palette[0]  = 24'h808080;
-    palette[1]  = 24'h808080;
-    palette[2]  = 24'h00FF80;
-    palette[3]  = 24'hffff80;
-    palette[4]  = 24'h000080;
-    palette[5]  = 24'hff0080;
-    palette[6]  = 24'h008080;
-    palette[7]  = 24'hff8080;
-    palette[8]  = 24'hff0080;
-    palette[9]  = 24'hffff80;
-    palette[10] = 24'hffff00;
-    palette[11] = 24'hffffff;
-    palette[12] = 24'hff0000;
-    palette[13] = 24'hff00ff;
-    palette[14] = 24'hff8000;
-    palette[15] = 24'hff8088;
-    palette[16] = 24'h000080;
-    palette[17] = 24'h00ff80;
-    palette[18] = 24'h00ff00;
-    palette[19] = 24'h00ffff;
-    palette[20] = 24'h000000;
-    palette[21] = 24'h0000ff;
-    palette[22] = 24'h008000;
-    palette[23] = 24'h0080ff;
-    palette[24] = 24'h800080;
-    palette[25] = 24'h80ff00;
-    palette[26] = 24'h80ff00;
+    palette[0]  = 24'h808080; // White
+    palette[1]  = 24'h808080; // White
+    palette[2]  = 24'h00FF80; // Sea Green
+    palette[3]  = 24'hffff80; // Pastel Yellow
+    palette[4]  = 24'h000080; // Blue
+    palette[5]  = 24'hff0080; // Purple
+    palette[6]  = 24'h008080; // Cyan
+    palette[7]  = 24'hff8080; // Pink
+    palette[8]  = 24'hff0080; // Purple
+    palette[9]  = 24'hffff80; // Pastel Yellow
+    palette[10] = 24'hffff00; // Bright Yellow
+    palette[11] = 24'hffffff; // Bright White
+    palette[12] = 24'hff0000; // Bright Red
+    palette[13] = 24'hff00ff; // Bright Magenta
+    palette[14] = 24'hff8000; // Orange
+    palette[15] = 24'hff8088; // Pastel Magenta
+    palette[16] = 24'h000080; // Blue
+    palette[17] = 24'h00ff80; // Sea Green
+    palette[18] = 24'h00ff00; // Bright Green
+    palette[19] = 24'h00ffff; // Bright Cyan
+    palette[20] = 24'h000000; // Black
+    palette[21] = 24'h0000ff; // Bright Blue
+    palette[22] = 24'h008000; // Green
+    palette[23] = 24'h0080ff; // Sky Blue
+    palette[24] = 24'h800080; // Magenta
+    palette[25] = 24'h80ff00; // Pastel Green
+    palette[26] = 24'h80ff00; // Lime
+    palette[27] = 24'h80FFFF; // Pastel Cyan
+    palette[28] = 24'h800000; // Red
+    palette[29] = 24'h8000FF; // Mauve
+    palette[30] = 24'h808000; // Yellow
+    palette[31] = 24'h8080FF; // Pastel Blue
   end
 
   assign n_int = !INT;
@@ -87,13 +93,13 @@ module video (
     if (hc == HT - 1) begin
       hc <= 0;
       int_cnt <= int_cnt + 1;
-      if (int_cnt == 52) begin
+      if (int_cnt == 104) begin
         int_cnt <= 0;
         INT <= 1;
       end
-      if (vc == VA + VFP + 2) begin // 2 hsyncs after vsync
+      if (vc == VA + VFP) begin // 1 hsync after vsync starts
         int_cnt <= 0;
-	INT <= int_cnt[5] == 0;
+	INT <= int_cnt > 50;
       end
       if (vc == VT - 1) vc <= 0;
       else vc <= vc + 1;
@@ -103,6 +109,7 @@ module video (
   assign vga_hs = !(hc >= HA + HFP && hc < HA + HFP + HS);
   assign vga_vs = !(vc >= VA + VFP && vc < VA + VFP + VS);
   assign vga_de = !(hc >= HA || vc >= VA);
+  assign long_vsync = (vc >= VA + VFP && vc < VA + VFP + VS + 4);
 
   wire [9:0] x = hc - HB;
   wire [7:0] y = vc[9:1] - VB2;
