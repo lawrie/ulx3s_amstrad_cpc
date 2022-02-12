@@ -17,7 +17,10 @@ module video (
   input         int_ack,
   input         int_clear,
   output        n_int,
-  output        long_vsync
+  output        long_vsync,
+  input         int_speed,
+  input [6:0]   width,
+  input [6:0]   height
 );
 
   parameter HA = 640;
@@ -25,16 +28,12 @@ module video (
   parameter HFP = 16;
   parameter HBP = 48;
   parameter HT  = HA + HS + HFP + HBP;
-  parameter HB = 0;
-  parameter HB_ADJ = 0; // NOTE border H-adjust
 
   parameter VA = 480;
   parameter VS  = 2;
   parameter VFP = 11;
   parameter VBP = 31;
   parameter VT  = VA + VS + VFP + VBP;
-  parameter VB = 40;
-  parameter VB2 = VB/2;
 
   reg [9:0] hc = 0;
   reg [9:0] vc = 0;
@@ -93,7 +92,7 @@ module video (
     if (hc == HT - 1) begin
       hc <= 0;
       int_cnt <= int_cnt + 1;
-      if (int_cnt == 104) begin
+      if (int_cnt == (int_speed ? 104 : 84)) begin
         int_cnt <= 0;
         INT <= 1;
       end
@@ -111,23 +110,28 @@ module video (
   assign vga_de = !(hc >= HA || vc >= VA);
   assign long_vsync = (vc >= VA + VFP && vc < VA + VFP + VS + 4);
 
-  wire [9:0] x = hc - HB;
-  wire [7:0] y = vc[9:1] - VB2;
+  wire [7:0] vb = (480 - (height << 3)) >> 1;
+  wire [6:0] vb2 = vb >> 1;
+
+  wire [7:0] hb = (640 - (width << 3)) >> 1;
+
+  wire [9:0] x = hc - hb;
+  wire [7:0] y = vc[9:1] - vb2;
 
   wire [9:0] x8 = x + 8;
   wire [7:0] y1 = y + 1;
 
-  wire h_border = (hc < (HB + HB_ADJ) || hc >= (HA - HB + HB_ADJ));
-  wire v_border = (vc < VB || vc >= VA - VB);
+  wire h_border = (hc < hb || hc >= (HA - hb));
+  wire v_border = (vc < vb || vc >= VA - vb);
   wire border = h_border || v_border;
 
   reg [7:0] pixels;
 
   // Read video memory
   always @(posedge clk) begin
-    if (x < HA - 8) vga_addr <= {y[2:0], 11'b0} + (y[7:3] * 80) + x8[9:3];
-    if (vc[0] == 1 && x >= HA - 8 && x < HA) vga_addr <= {y1[2:0], 11'b0} + (y1[7:3] * 80); // First byte of next line
-    if (vc[0] == 0 && x >= HA - 8 && x < HA) vga_addr <= {y[2:0], 11'b0} + (y[7:3] * 80);
+    if (x < HA - 8) vga_addr <= {y[2:0], 11'b0} + (y[7:3] * width) + x8[9:3];
+    if (vc[0] == 1 && x >= HA - 8 && x < HA) vga_addr <= {y1[2:0], 11'b0} + (y1[7:3] * width); // First byte of next line
+    if (vc[0] == 0 && x >= HA - 8 && x < HA) vga_addr <= {y[2:0], 11'b0} + (y[7:3] * width);
     if (x[2:0] == 7) pixels <= vga_data;
     else begin
       if (mode == 0 && x[2:0] == 3) pixels <= {pixels[6:0], 1'b0};

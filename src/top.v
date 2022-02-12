@@ -55,7 +55,8 @@ module top #(
   output        oled_dc,
   output        oled_resn,
   // Leds
-  output reg [7:0]  led
+  output reg [7:0]  led,
+  input      [3:0]  sw
 );
 
   // ===============================================================
@@ -519,7 +520,10 @@ module top #(
     .int_ack(n_iorq == 1'b0 && n_m1 == 1'b0),
     .int_clear(ga_cs && n_iowr == 1'b0 && cpu_data_out[7:6] == 2 && cpu_data_out[4]),
     .n_int(n_int),
-    .long_vsync(long_vsync)
+    .long_vsync(long_vsync),
+    .int_speed(sw[3]),
+    .width(h_disp << 1),
+    .height(v_disp << 1)
   );
 
   // ===============================================================
