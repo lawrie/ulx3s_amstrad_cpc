@@ -374,7 +374,7 @@ class osd:
   #    self.spi.write(bytearray(a)) # write content
   #    self.cs.off()
 
-bitstream="/sd/sms/bitstreams/ulx3s_85f_sms.bit"
+bitstream="/sd/amstrad_cpc/bitstreams/ulx3s_85f_amstrad_cpc.bit"
 try:
   os.mount(SDCard(slot=3),"/sd")
   ecp5.prog(bitstream)

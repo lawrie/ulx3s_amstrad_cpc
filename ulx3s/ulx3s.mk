@@ -7,7 +7,7 @@ BUILDDIR = bin
 compile: $(BUILDDIR)/toplevel.bit
 
 prog: $(BUILDDIR)/toplevel.bit
-	ujprog $^
+	fujprog $^
 
 $(BUILDDIR)/toplevel.json: $(VERILOG)
 	mkdir -p $(BUILDDIR)
