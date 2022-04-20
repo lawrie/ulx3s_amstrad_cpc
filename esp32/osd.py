@@ -162,16 +162,14 @@ class osd:
         self.enable[0]=0
         self.osd_enable(0)
         self.spi.deinit()
-        tap=ecp5.ecp5()
-        tap.prog_stream(open(filename,"rb"),blocksize=1024)
+        ecp5.prog_stream(open(filename,"rb"),blocksize=1024)
         if filename.endswith("_sd.bit"):
           os.umount("/sd")
           for i in bytearray([2,4,12,13,14,15]):
             p=Pin(i,Pin.IN)
             a=p.value()
             del p,a
-        result=tap.prog_close()
-        del tap
+        result=ecp5.prog_close()
         gc.collect()
         #os.mount(SDCard(slot=3),"/sd") # BUG, won't work
         self.init_spi() # because of ecp5.prog() spi.deinit()
