@@ -140,7 +140,7 @@ module lcd_video #(
            if(c_color_bits < 12)
              data <= S_color[7:0];
            else
-             data <= byte_toggle ? S_color[7:0] : S_color[15:8];
+             data <= x >= 192 ? 0 : byte_toggle ? S_color[7:0] : S_color[15:8];
            clken <= 1;
            if (byte_toggle || c_color_bits < 12) begin
              next_pixel <= 1;
